@@ -160,6 +160,108 @@ static const uint16_t lut[SINE_TABLE_LENGTH] = {
 
 
 
+
+/*
+ * Start the DMA to the I2S audio device
+ */
+
+void Audio::_dma_start(void) {
+	/* Start up the DMA */
+	HAL_I2S_Transmit_DMA(&hi2s2, (uint16_t *) this->lr_audio_output_buffer, LR_AUDIO_BUFFER_SIZE * 2);
+}
+
+/*
+ * Stop the DMA to the I2S Audio device
+ */
+
+void Audio::_dma_stop(void) {
+	HAL_I2S_DMAStop(&hi2s2);
+}
+
+/*
+ * Set up the generation of a single tone
+ */
+
+void Audio::_generate_tone(ChannelInfo *channel_info, float freq, float level) {
+	this->_generate_dual_tone(channel_info, freq, 0.0, level, 0.0);
+}
+/*
+ * Set up the generation of a dual tone
+ */
+
+void Audio::_generate_dual_tone(ChannelInfo *channel_info, float freq1, float freq2, float db_level1, float db_level2) {
+
+	channel_info->f1 = freq1;
+	channel_info->f2 = freq2;
+	// Treat as DbV here.
+	channel_info->f1_level = pow(10,(db_level1/20));
+	channel_info->f2_level = pow(10,(db_level2/20));
+
+	channel_info->phase_accum[0] = 0;
+	channel_info->phase_accum[1] = 0;
+	/*
+	 *  Formula:
+	 *
+	 *  (2^N * Fout)/Fs
+	 *  Where:
+	 *  Fs = sample frequency
+	 *  Fout is the desired output frequency
+	 *  2^N is maximum value of the phase accumulator + 1
+	 *
+	 */
+	channel_info->tuning_word[0] = (uint16_t) (((PHASE_ACCUM_MODULO_N) * ((float) channel_info->f1)) / ((float) SAMPLE_FREQ_HZ));
+	channel_info->tuning_word[1] = (uint16_t) (((PHASE_ACCUM_MODULO_N) * ((float) channel_info->f2)) / ((float) SAMPLE_FREQ_HZ));
+}
+
+
+
+
+/*
+ * Call to return the next computed value
+ */
+
+
+int16_t Audio::_next_tone_value(ChannelInfo *channel_info) {
+
+
+	int16_t rawval_f1 = 0;
+	int16_t rawval_f2 = 0;
+
+	if(channel_info->f1 != 0.0) {
+		uint16_t sine_table_index = (uint16_t) (channel_info->phase_accum[0] >> PHASE_ACCUMULATOR_TRUNCATION); /* Get sine table index for F1 */
+		rawval_f1 = lut[sine_table_index];
+		/* For signed audio, positive and negative excursions need to be handled differently */
+		if(rawval_f1 >= 0){
+			rawval_f1 = rawval_f1 * channel_info->f1_level;
+		}
+		else {
+			rawval_f1 = -(-rawval_f1 * channel_info->f1_level);
+		}
+	}
+
+	if(channel_info->f2 != 0.0) {
+		uint16_t sine_table_index = (uint16_t) (channel_info->phase_accum[1] >> PHASE_ACCUMULATOR_TRUNCATION); /* Get sine table index for F2 */
+		rawval_f2 = lut[sine_table_index];
+		/* For signed audio, positive and negative excursions need to be handled differently */
+		if(rawval_f2 >= 0){
+			rawval_f2 = rawval_f2 * channel_info->f2_level;
+		}
+		else {
+			rawval_f2 = -(-rawval_f2 * channel_info->f2_level);
+		}
+	}
+
+	/* Advance to next phase accumulator value */
+	for(int i = 0; i < 2; i++) {
+		channel_info->phase_accum [i] = (channel_info->phase_accum[i] + channel_info->tuning_word[i]) & (PHASE_ACCUMULATOR_MASK);
+	}
+
+
+
+	return rawval_f1 + rawval_f2;
+}
+
+
 /*
  * Called to set up the audio processing
  * before the RTOS starts running
@@ -174,123 +276,29 @@ void Audio::setup(void) {
 		NULL,
 		0U
 	};
-
+	/* Create intertask lock */
 	this->_lock = osMutexNew(&aud_mutex_attr);
-	this->generate_dual_tone(770, 1209, -9.0, -6.0); /* TEST code */
-	//this->generate_tone(1000, 1.0); // Test code
-	this->dma_start();
 
-
-}
-
-/*
- * Start the DMA to the I2S audio device
- */
-
-void Audio::dma_start(void) {
-	/* Start up the DMA */
-	HAL_I2S_Transmit_DMA(&hi2s2, (uint16_t *) this->lr_audio_output_buffer, LR_AUDIO_BUFFER_SIZE * 2);
-}
-
-/*
- * Stop the DMA to the I2S Audio device
- */
-
-void Audio::dma_stop(void) {
-	HAL_I2S_DMAStop(&hi2s2);
-}
-
-/*
- * Set up the generation of a single tone
- */
-
-void Audio::generate_tone(float freq, float level) {
-	this->generate_dual_tone(freq, 0.0, level, 0.0);
-}
-/*
- * Set up the generation of a dual tone
- */
-
-void Audio::generate_dual_tone(float freq1, float freq2, float db_level1, float db_level2) {
-
-	this->f1 = freq1;
-	this->f2 = freq2;
-	this->f1_level = pow(10,(db_level1/20));
-	this->f2_level = pow(10,(db_level2/20));
-
-	this->phase_accum[0] = 0;
-	this->phase_accum[1] = 0;
-	/*
-	 *  Formula:
-	 *
-	 *  (2^N * Fout)/Fs
-	 *  Where:
-	 *  Fs = sample frequency
-	 *  Fout is the desired output frequency
-	 *  2^N is maximum value of the phase accumulator + 1
-	 *
-	 */
-	this->tuning_word[0] = (uint16_t) (((PHASE_ACCUM_MODULO_N) * ((float) this->f1)) / ((float) SAMPLE_FREQ_HZ));
-	this->tuning_word[1] = (uint16_t) (((PHASE_ACCUM_MODULO_N) * ((float) this->f2)) / ((float) SAMPLE_FREQ_HZ));
-}
-
-/*
- * Call to return the next computed value
- */
-
-
-int16_t Audio::next_value(void) {
-
-
-	int16_t rawval_f1 = 0;
-	int16_t rawval_f2 = 0;
-
-	if(this->f1 != 0.0) {
-		uint16_t sine_table_index = (uint16_t) (this->phase_accum[0] >> PHASE_ACCUMULATOR_TRUNCATION); /* Get sine table index for F1 */
-		rawval_f1 = lut[sine_table_index];
-		/* For signed audio, positive and negative excursions need to be handled differently */
-		if(rawval_f1 >= 0){
-			rawval_f1 = rawval_f1 * this->f1_level;
+	/* Initialize channel information */
+	for (int i = 0; i < NUM_AUDIO_CHANNELS; i++) {
+		if(i == 0) { // DEBUG
+			this->channel_info[i].state = AS_GEN_RINGING_TONE;
 		}
 		else {
-			rawval_f1 = -(-rawval_f1 * this->f1_level);
+			this->channel_info[i].state = AS_GEN_DIAL_TONE;
 		}
+
+		this->channel_info[i].return_state = AS_IDLE;
+
+
 	}
+	/* Start I2S DMA */
 
-	if(this->f2 != 0.0) {
-		uint16_t sine_table_index = (uint16_t) (this->phase_accum[1] >> PHASE_ACCUMULATOR_TRUNCATION); /* Get sine table index for F2 */
-		rawval_f2 = lut[sine_table_index];
-		/* For signed audio, positive and negative excursions need to be handled differently */
-		if(rawval_f2 >= 0){
-			rawval_f2 = rawval_f2 * this->f2_level;
-		}
-		else {
-			rawval_f2 = -(-rawval_f2 * this->f2_level);
-		}
-	}
-
-	/* Advance to next phase accumulator value */
-	for(int i = 0; i < 2; i++) {
-		this->phase_accum [i] = (this->phase_accum[i] + this->tuning_word[i]) & (PHASE_ACCUMULATOR_MASK);
-	}
+	this->_dma_start();
 
 
-
-	return rawval_f1 + rawval_f2;
 }
 
-
-/*
- * Process left and right audio blocks
- */
-
-
-void Audio::process_left_right(void) {
-	for(int i = 0; i < AUDIO_BUFFER_SIZE; i++) {
-		this->audio_output_buffers[0][i] = this->next_value(); /* Test code */
-	}
-
-}
 
 /*
  * This is called by the DMA half full and full interrupts to
@@ -298,20 +306,140 @@ void Audio::process_left_right(void) {
  * at the requested buffer number (0 or 1). 0 indicates the lower
  * half of the buffer needs to be filled, and 1 indicates the upper
  * half of the buffer needs to be filled.
+ *
  */
 
 void Audio::request_block(uint8_t buffer_number) {
 
 	HAL_GPIO_WritePin(LEDN_GPIO_Port, LEDN_Pin, GPIO_PIN_RESET);
 
-	int16_t *lr_audio_buffer = this->lr_audio_output_buffer + ((buffer_number) ? LR_AUDIO_BUFFER_SIZE : 0);
-	/* Do the required audio processing */
-	this->process_left_right();
+	/* Calculate the buffer base address into the circular buffer */
+	int16_t *buffer = (buffer_number) ? this->lr_audio_output_buffer + LR_AUDIO_BUFFER_SIZE : lr_audio_output_buffer;
 
-	/* Merge the left and right buffers into the combined buffer */
-	for(int buffer_position = 0; buffer_position < LR_AUDIO_BUFFER_SIZE; buffer_position++) {
-		int16_t source_word = this->audio_output_buffers[buffer_position & 1][buffer_position >> 1];
-		lr_audio_buffer[buffer_position] = source_word;
+	/*
+	 * Left and right channels are interleaved.
+	 * Left channel (0) is at even buffer addresses
+	 * Right channel (1) is at odd buffer addresses
+	 *
+	 * We iterate through all buffer addresses here
+	 * If there's active audio for a channel, it
+	 * will be filled byte by byte here If nothing
+	 * is active, a zero will be placed into the buffer.
+	 */
+	for (int i = 0; i < LR_AUDIO_BUFFER_SIZE; i++) {
+		buffer[i] = 0;
+		ChannelInfo *ch_info = &this->channel_info[(i & 1)];
+
+		/*
+		 * State machine
+		 */
+		switch(ch_info->state) {
+
+		case AS_IDLE:
+			break;
+
+		case AS_GEN_DIAL_TONE:
+			this->_generate_dual_tone(ch_info,
+				INDICATIONS.dial_tone.tone_pair[0], /* F1 */
+				INDICATIONS.dial_tone.tone_pair[1], /* F2 */
+				INDICATIONS.dial_tone.level_pair[0],/* L1 */
+				INDICATIONS.dial_tone.level_pair[1] /* L2 */
+			);
+			ch_info->state = AS_GEN_DIAL_TONE_WAIT;
+			break;
+
+		case AS_GEN_DIAL_TONE_WAIT:
+			buffer[i] = this->_next_tone_value(ch_info);
+			break;
+
+
+		case AS_GEN_BUSY_TONE:
+		case AS_GEN_CONGESTION_TONE:
+			if (ch_info->state == AS_GEN_CONGESTION_TONE) {
+				ch_info->cadence_timing = _convert_ms(INDICATIONS.busy.congestion_cadence_ms);
+			}
+			else {
+				ch_info->cadence_timing =  _convert_ms(INDICATIONS.busy.busy_cadence_ms);
+			}
+			ch_info->cadence_timer = ch_info->cadence_timing;
+
+			this->_generate_dual_tone(ch_info,
+				INDICATIONS.busy.tone_pair[0], /* F1 */
+				INDICATIONS.busy.tone_pair[1], /* F2 */
+				INDICATIONS.busy.level_pair[0],/* L1 */
+				INDICATIONS.busy.level_pair[1] /* L2 */
+			);
+			ch_info->state = AS_BUSY_WAIT_TONE_END;
+			break;
+
+		case AS_BUSY_WAIT_TONE_END:
+			buffer[i] = this->_next_tone_value(ch_info);
+			if(ch_info->cadence_timer == 0){
+				if((buffer[i] > -200) && (buffer[i] < 200)) { /* Shut close to zero to reduce audio clicking. Changes the timing ever so slightly */
+					ch_info->cadence_timer = ch_info->cadence_timing;
+					ch_info->state = AS_BUSY_WAIT_SILENCE_END;
+				}
+			}
+			else {
+				ch_info->cadence_timer--;
+			}
+
+			break;
+
+		case AS_BUSY_WAIT_SILENCE_END:
+			if(ch_info->cadence_timer == 0){
+				ch_info->cadence_timer = ch_info->cadence_timing;
+				ch_info->state = AS_BUSY_WAIT_TONE_END;
+			}
+			else {
+				ch_info->cadence_timer--;
+			}
+
+			break;
+
+
+		case AS_GEN_RINGING_TONE:
+			ch_info->cadence_timer =  _convert_ms(INDICATIONS.ringing.ring_on_cadence_ms);
+
+			this->_generate_dual_tone(ch_info,
+				INDICATIONS.ringing.tone_pair[0], /* F1 */
+				INDICATIONS.ringing.tone_pair[1], /* F2 */
+				INDICATIONS.ringing.level_pair[0],/* L1 */
+				INDICATIONS.ringing.level_pair[1] /* L2 */
+			);
+			ch_info->state = AS_RINGING_WAIT_TONE_END;
+			break;
+
+		case AS_RINGING_WAIT_TONE_END:
+			buffer[i] = this->_next_tone_value(ch_info);
+			if(ch_info->cadence_timer == 0){
+				if((buffer[i] > -200) && (buffer[i] < 200)) { /* Shut close to zero to reduce audio clicking. Changes the timing ever so slightly */
+					ch_info->cadence_timer = _convert_ms(INDICATIONS.ringing.ring_off_cadence_ms);
+					ch_info->state = AS_RINGING_WAIT_SILENCE_END;
+				}
+			}
+			else {
+				ch_info->cadence_timer--;
+			}
+
+			break;
+
+		case AS_RINGING_WAIT_SILENCE_END:
+			if(ch_info->cadence_timer == 0){
+				ch_info->cadence_timer = _convert_ms(INDICATIONS.ringing.ring_on_cadence_ms);
+				ch_info->state = AS_RINGING_WAIT_TONE_END;
+			}
+			else {
+				ch_info->cadence_timer--;
+			}
+
+			break;
+
+		default:
+			channel_info->state = AS_IDLE;
+			break;
+
+		}
 	}
 
 	HAL_GPIO_WritePin(LEDN_GPIO_Port, LEDN_Pin, GPIO_PIN_SET);
