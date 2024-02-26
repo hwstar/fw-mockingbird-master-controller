@@ -7,15 +7,19 @@ namespace Audio {
 enum {AS_IDLE=0,
 	AS_GEN_DIAL_TONE, AS_GEN_DIAL_TONE_WAIT,
 	AS_GEN_BUSY_TONE, AS_GEN_CONGESTION_TONE, AS_BUSY_WAIT_TONE_END, AS_BUSY_WAIT_SILENCE_END,
-	AS_GEN_RINGING_TONE, AS_RINGING_WAIT_TONE_END, AS_RINGING_WAIT_SILENCE_END
+	AS_GEN_RINGING_TONE, AS_RINGING_WAIT_TONE_END, AS_RINGING_WAIT_SILENCE_END,
+	AS_SEND_MF, AS_SEND_MF_WAIT_TONE_END, AS_SEND_MF_WAIT_SILENCE_END,
+	AS_SEND_DTMF, AS_SEND_DTMF_WAIT_TONE_END, AS_SEND_DTMF_WAIT_SILENCE_END
 };
 
-const float SAMPLE_FREQ_HZ = 8000;
-const uint16_t SINE_TABLE_BIT_WIDTH = 10;
-const uint16_t PHASE_ACCUMULATOR_WIDTH = 16;
-const uint16_t LR_AUDIO_BUFFER_SIZE = 320;
+const float SAMPLE_FREQ_HZ = 8000; /* Actual sample freq is slightly higher at 8012 Hz, but setting this to 8000 Hz reduces jitter in the tone frequencies. */
+const uint16_t SINE_TABLE_BIT_WIDTH = 10; /* 1KB of sine table */
+const uint16_t PHASE_ACCUMULATOR_WIDTH = 16; /* 16 bits gives appx. 0.14 Hz of frequency resolution */
+const uint16_t LR_AUDIO_BUFFER_SIZE = 320; /* Left and right audio buffer audio samples for a 20mS frame of both */
+const int16_t TONE_SHUTOFF_THRESHOLD = 200; /* Adjustment to trade off clicking at the end of a tone, vs. the length of the tone */
 
 
+const uint8_t DIGIT_STRING_MAX_LENGTH = 20;
 const uint16_t NUM_MF_TONE_PAIRS = 15;
 const uint16_t NUM_DTMF_TONE_PAIRS = 16;
 const uint8_t MAX_TONES = 2;
@@ -32,6 +36,9 @@ const uint32_t TIME_PER_SAMPLE_US = 1000000UL/SAMPLE_FREQ_HZ;
 typedef struct ChannelInfo {
 	uint8_t state;
 	uint8_t return_state;
+	uint8_t digit_string_length;
+	uint8_t digit_string_index;
+	uint8_t digit_string[DIGIT_STRING_MAX_LENGTH];
 	float f1;
 	float f2;
 	float f1_level;
@@ -129,7 +136,9 @@ const Dtmf DTMF = {
 							{770.0, 1633.0}, /* B */
 							{852.0, 1633.0}, /* C */
 							{941.0, 1633.0}, /* D */
-					}
+					},
+					50, /* Active time */
+					50, /* Inactive time */
 };
 
 const Mf MF = {
@@ -165,6 +174,8 @@ public:
 
 protected:
 	int32_t inline _convert_ms(uint16_t ms) { return ((((uint32_t) ms) * 1000)/TIME_PER_SAMPLE_US); }
+	bool _convert_digit_string(ChannelInfo *ch_info, const char *digits, bool is_mf = false);
+	uint32_t _get_mf_tone_duration(uint8_t mf_digit);
 	void _process_left_right(void);
 	void _dma_start(void);
 	void _dma_stop(void);
@@ -173,7 +184,7 @@ protected:
 	void _generate_dual_tone(ChannelInfo *channel_info, float freq1, float freq2, float db_level1, float db_level2);
 	ChannelInfo channel_info[NUM_AUDIO_CHANNELS];
 	osMutexId_t _lock;
-	int16_t lr_audio_output_buffer[LR_AUDIO_BUFFER_SIZE *2]; /* 2 buffers in circular buffer for double buffering */
+	int16_t lr_audio_output_buffer[LR_AUDIO_BUFFER_SIZE * 2]; /* 2 buffers in circular buffer for double buffering */
 };
 
 

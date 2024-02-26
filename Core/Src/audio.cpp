@@ -1,8 +1,11 @@
 #include "top.h"
 #include "audio.h"
+#include "logging.h"
 #include <math.h>
 
 namespace Audio {
+
+static const char *TAG = "audio";
 
 
 /** Generated using Dr LUT - Free Lookup Table Generator
@@ -262,6 +265,101 @@ int16_t Audio::_next_tone_value(ChannelInfo *channel_info) {
 }
 
 
+uint32_t Audio::_get_mf_tone_duration(uint8_t mf_digit) {
+	uint32_t duration_ms;
+	switch(mf_digit) {
+		case MF_KP:
+			duration_ms = MF.kp_active_time_ms;
+			break;
+
+		case MF_ST:
+		case MF_STP:
+		case MF_ST2P:
+		case MF_ST3P:
+			duration_ms = MF.st_active_time_ms;
+			break;
+
+		default:
+			duration_ms = MF.active_time_ms;
+			break;
+	}
+	return this->_convert_ms(duration_ms);
+}
+
+/*
+ * Convert ASCII tone string to binary representation
+ */
+
+
+bool Audio::_convert_digit_string(ChannelInfo *ch_info, const char *digits, bool is_mf) {
+	uint8_t i, code;
+
+	if(!ch_info || !digits) {
+		LOG_ERROR(TAG, "Null argument(s) passed");
+		return false;
+	}
+
+	ch_info->digit_string_index = 0;
+	ch_info->digit_string_length = 0;
+
+
+	for(i = 0; i < strlen(digits); i++) {
+		if(i >= DIGIT_STRING_MAX_LENGTH) {
+			LOG_ERROR(TAG, "Digit string exceeds maximum length");
+			return false;
+		}
+		if(digits[i] == 0) { /* End of digit string */
+			break;
+		}
+		switch(digits[i]) {
+			case '*':
+				code = 0x0A;
+				break;
+
+			case '#':
+				code = 0x0B;
+				break;
+
+			case 'A':
+				code = 0x0C;
+				break;
+
+			case 'B':
+				code = 0x0D;
+				break;
+
+			case 'C':
+				code = 0x0E;
+				break;
+
+			case 'D':
+				if(!is_mf) {
+					code = 0x0F;
+				}
+				else {
+					LOG_ERROR(TAG,"Invalid mf tone digit");
+					return false;
+				}
+				break;
+
+			default:
+				/* Digits 0 through 9 */
+				if((digits[i] >= '0') && (digits[i] <= '9')) {
+					code = digits[i] - 0x30;
+				}
+				else {
+					LOG_ERROR(TAG, "Invalid tone digit");
+					return false;
+				}
+				break;
+		}
+		/* Store the code digit in the dial string */
+		ch_info->digit_string[ch_info->digit_string_length++] = code;
+	}
+	return true;
+
+}
+
 /*
  * Called to set up the audio processing
  * before the RTOS starts running
@@ -282,7 +380,8 @@ void Audio::setup(void) {
 	/* Initialize channel information */
 	for (int i = 0; i < NUM_AUDIO_CHANNELS; i++) {
 		if(i == 0) { // DEBUG
-			this->channel_info[i].state = AS_GEN_RINGING_TONE;
+			_convert_digit_string(&this->channel_info[0], "*0123456789#", true);
+			this->channel_info[i].state = AS_SEND_MF;
 		}
 		else {
 			this->channel_info[i].state = AS_GEN_DIAL_TONE;
@@ -375,7 +474,7 @@ void Audio::request_block(uint8_t buffer_number) {
 		case AS_BUSY_WAIT_TONE_END:
 			buffer[i] = this->_next_tone_value(ch_info);
 			if(ch_info->cadence_timer == 0){
-				if((buffer[i] > -200) && (buffer[i] < 200)) { /* Shut close to zero to reduce audio clicking. Changes the timing ever so slightly */
+				if((buffer[i] > -TONE_SHUTOFF_THRESHOLD) && (buffer[i] < TONE_SHUTOFF_THRESHOLD)) { /* Shut off close to zero to reduce audio clicking. Changes the tone timing ever so slightly */
 					ch_info->cadence_timer = ch_info->cadence_timing;
 					ch_info->state = AS_BUSY_WAIT_SILENCE_END;
 				}
@@ -413,7 +512,7 @@ void Audio::request_block(uint8_t buffer_number) {
 		case AS_RINGING_WAIT_TONE_END:
 			buffer[i] = this->_next_tone_value(ch_info);
 			if(ch_info->cadence_timer == 0){
-				if((buffer[i] > -200) && (buffer[i] < 200)) { /* Shut close to zero to reduce audio clicking. Changes the timing ever so slightly */
+				if((buffer[i] > -TONE_SHUTOFF_THRESHOLD) && (buffer[i] < TONE_SHUTOFF_THRESHOLD)) { /* Shut off close to zero to reduce audio clicking. Changes the tone timing ever so slightly */
 					ch_info->cadence_timer = _convert_ms(INDICATIONS.ringing.ring_off_cadence_ms);
 					ch_info->state = AS_RINGING_WAIT_SILENCE_END;
 				}
@@ -433,6 +532,120 @@ void Audio::request_block(uint8_t buffer_number) {
 				ch_info->cadence_timer--;
 			}
 
+			break;
+
+
+		case AS_SEND_MF:
+			if (!ch_info->digit_string_length) { /* Zero length aborts operation */
+				ch_info->state = AS_IDLE;
+			}
+			else {
+				/* First tone pair */
+				ch_info->digit_string_index = 0;
+				ch_info->cadence_timer = this->_get_mf_tone_duration(ch_info->digit_string[ch_info->digit_string_index]);
+				this->_generate_dual_tone(ch_info,
+								MF.tone_pairs[ch_info->digit_string[ch_info->digit_string_index]].low, /* F1 */
+								MF.tone_pairs[ch_info->digit_string[ch_info->digit_string_index]].high, /* F2 */
+								MF.levels.low,/* L1 */
+								MF.levels.high /* L2 */
+							);
+				ch_info->digit_string_index++;
+				ch_info->state = AS_SEND_MF_WAIT_TONE_END;
+			}
+			break;
+
+		case AS_SEND_MF_WAIT_TONE_END:
+			buffer[i] = this->_next_tone_value(ch_info);
+			if (ch_info->cadence_timer == 0){
+				if ((buffer[i] > -TONE_SHUTOFF_THRESHOLD) && (buffer[i] < TONE_SHUTOFF_THRESHOLD)) { /* Shut off close to zero to reduce audio clicking. Changes the tone timing ever so slightly */
+					/* Test for end of tone sequence */
+					if (ch_info->digit_string_index >= ch_info->digit_string_length) {
+						ch_info->state = AS_IDLE;
+					}
+					else {
+						ch_info->cadence_timer = _convert_ms(MF.inactive_time_ms);
+						ch_info->state = AS_SEND_MF_WAIT_SILENCE_END;
+					}
+				}
+			}
+			else {
+				ch_info->cadence_timer--;
+			}
+			break;
+
+		case AS_SEND_MF_WAIT_SILENCE_END:
+			if (ch_info->cadence_timer == 0){
+				/* Next tone pair */
+				ch_info->cadence_timer = this->_get_mf_tone_duration(ch_info->digit_string[ch_info->digit_string_index]);
+				this->_generate_dual_tone(ch_info,
+								MF.tone_pairs[ch_info->digit_string[ch_info->digit_string_index]].low, /* F1 */
+								MF.tone_pairs[ch_info->digit_string[ch_info->digit_string_index]].high, /* F2 */
+								MF.levels.low,/* L1 */
+								MF.levels.high /* L2 */
+							);
+				ch_info->digit_string_index++;
+				ch_info->state = AS_SEND_MF_WAIT_TONE_END;
+			}
+			else {
+				ch_info->cadence_timer--;
+			}
+
+		break;
+
+		case AS_SEND_DTMF:
+			if (!ch_info->digit_string_length) { /* Zero length aborts operation */
+				ch_info->state = AS_IDLE;
+			}
+			else {
+				/* First tone pair */
+				ch_info->digit_string_index = 0;
+				ch_info->cadence_timer = this->_convert_ms(DTMF.active_time_ms);
+				this->_generate_dual_tone(ch_info,
+								DTMF.tone_pairs[ch_info->digit_string[ch_info->digit_string_index]].low, /* F1 */
+								DTMF.tone_pairs[ch_info->digit_string[ch_info->digit_string_index]].high, /* F2 */
+								DTMF.levels.low,/* L1 */
+								DTMF.levels.high /* L2 */
+							);
+				ch_info->digit_string_index++;
+				ch_info->state = AS_SEND_DTMF_WAIT_TONE_END;
+			}
+			break;
+
+		case AS_SEND_DTMF_WAIT_TONE_END:
+			buffer[i] = this->_next_tone_value(ch_info);
+			if (ch_info->cadence_timer == 0){
+				if ((buffer[i] > -TONE_SHUTOFF_THRESHOLD) && (buffer[i] < TONE_SHUTOFF_THRESHOLD)) { /* Shut off close to zero to reduce audio clicking. Changes the tone timing ever so slightly */
+					/* Test for end of tone sequence */
+					if (ch_info->digit_string_index >= ch_info->digit_string_length) {
+						ch_info->state = AS_IDLE;
+					}
+					else {
+						ch_info->cadence_timer = this->_convert_ms(DTMF.inactive_time_ms);
+						ch_info->state = AS_SEND_DTMF_WAIT_SILENCE_END;
+					}
+				}
+			}
+			else {
+				ch_info->cadence_timer--;
+			}
+			break;
+
+		case AS_SEND_DTMF_WAIT_SILENCE_END:
+			if (ch_info->cadence_timer == 0){
+				/* Next tone pair */
+				ch_info->cadence_timer = this->_convert_ms(DTMF.active_time_ms);
+				this->_generate_dual_tone(ch_info,
+								DTMF.tone_pairs[ch_info->digit_string[ch_info->digit_string_index]].low, /* F1 */
+								DTMF.tone_pairs[ch_info->digit_string[ch_info->digit_string_index]].high, /* F2 */
+								DTMF.levels.low,/* L1 */
+								DTMF.levels.high /* L2 */
+							);
+				ch_info->digit_string_index++;
+				ch_info->state = AS_SEND_DTMF_WAIT_TONE_END;
+			}
+			else {
+				ch_info->cadence_timer--;
+			}
 			break;
 
 		default:

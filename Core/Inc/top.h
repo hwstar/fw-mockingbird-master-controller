@@ -6,10 +6,17 @@
  */
 
 #pragma once
+
 #include <stdint.h>
 #include <stdbool.h>
 #include "main.h"
 #include "cmsis_os.h"
+
+const uint8_t MF_KP = 0x0a;
+const uint8_t MF_ST = 0x0b;
+const uint8_t MF_STP = 0x0c;
+const uint8_t MF_ST2P = 0x0d;
+const uint8_t MF_ST3P = 0x0e;
 
 /* Functions which need C-compatiable linker names */
 #ifdef __cplusplus
