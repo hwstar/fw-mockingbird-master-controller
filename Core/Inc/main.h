@@ -31,6 +31,7 @@ extern "C" {
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "cmsis_os.h"
 
 /* USER CODE END Includes */
 
@@ -48,6 +49,8 @@ extern UART_HandleTypeDef huart6;
 
 extern I2S_HandleTypeDef hi2s2;
 extern DMA_HandleTypeDef hdma_spi2_tx;
+
+extern osMessageQueueId_t Queue_I2C_BussesHandle;
 
 /* USER CODE END ET */
 
@@ -94,6 +97,43 @@ void Error_Handler(void);
 #define INMUX_IN_GPIO_Port GPIOB
 
 /* USER CODE BEGIN Private defines */
+
+/* I2C interrupt message queue codes */
+#define MSG_I2C_NONE 0
+#define MSG_I2C_RX 1
+#define MSG_I2C_TX 2
+#define MSG_I2C_ERR 3
+
+/* GPIO pins */
+#define LEDN_Pin GPIO_PIN_13
+#define LEDN_GPIO_Port GPIOC
+#define MF_DECODER_ADC_Pin GPIO_PIN_0
+#define MF_DECODER_ADC_GPIO_Port GPIOA
+#define DTMF0_Pin GPIO_PIN_3
+#define DTMF0_GPIO_Port GPIOA
+#define DTMF1_Pin GPIO_PIN_4
+#define DTMF1_GPIO_Port GPIOA
+#define DTMF2_Pin GPIO_PIN_5
+#define DTMF2_GPIO_Port GPIOA
+#define DTMF3_Pin GPIO_PIN_6
+#define DTMF3_GPIO_Port GPIOA
+#define ADC_SAMPLE_FREQ_Pin GPIO_PIN_7
+#define ADC_SAMPLE_FREQ_GPIO_Port GPIOA
+#define DTMF_STB2_Pin GPIO_PIN_15
+#define DTMF_STB2_GPIO_Port GPIOA
+#define DTMF_STB1_Pin GPIO_PIN_4
+#define DTMF_STB1_GPIO_Port GPIOB
+#define INMUX_IN_Pin GPIO_PIN_5
+#define INMUX_IN_GPIO_Port GPIOB
+
+
+typedef struct I2C_Queue_Message {
+	uint8_t bus;
+	uint8_t type;
+	I2C_HandleTypeDef *handle;
+} I2C_Queue_Message;
+
+typedef I2C_Queue_Message *pI2C_Queue_Message;
 
 /* USER CODE END Private defines */
 

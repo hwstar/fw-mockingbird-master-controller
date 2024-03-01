@@ -9,6 +9,8 @@
 #include "console.h"
 #include "mf_decoder.h"
 #include "audio.h"
+#include "i2c_engine.h"
+
 
 static const char *TAG = "top";
 
@@ -18,10 +20,12 @@ static const char *TAG = "top";
 Console::Console Con;
 Mfd::MF_decoder Mfr;
 Audio::Audio Aud;
+I2C_Engine::I2C_Engine I2c;
+
 
 
 /*
- * Hook to initialize things before the RTOS is up and running
+ * Hook to initialize things before the RTOS tasks are up and running
  */
 
 
@@ -29,6 +33,7 @@ void Top_init(void) {
 	Con.setup();
 	Mfr.setup();
 	Aud.setup();
+	I2c.setup();
 
 }
 
@@ -49,6 +54,7 @@ extern void Top_send_I2S_Audio_Frame(uint8_t buffer_number){
 	Aud.request_block(buffer_number);
 }
 
+
 /*
  * Task to process switching functions
  */
@@ -56,7 +62,7 @@ extern void Top_send_I2S_Audio_Frame(uint8_t buffer_number){
 void Top_switch_task(void) {
 	static bool mfr_running = false;
 
-	osDelay(1);
+	osDelay(50);
 
 
 	/* Test code */
@@ -87,5 +93,14 @@ void Top_switch_task(void) {
 
 void Top_console_task(void) {
 	Con.loop();
+}
+
+
+/*
+ * Task to handle the I2C bus
+ */
+
+void Top_i2c_task(void) {
+	I2c.loop();
 }
 

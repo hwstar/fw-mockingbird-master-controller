@@ -5,13 +5,19 @@
 * Default logging level
 */
 
+#define LOG_LEVEL_ERROR 0
+#define LOG_LEVEL_WARN 1
+#define LOG_LEVEL_NOTICE 2
+#define LOG_LEVEL_INFO 3
+#define LOG_LEVEL_DEBUG 4
+
 #define LOG_LEVEL LOG_LEVEL_DEBUG
 
 
 namespace LOGGING {
 
 const uint16_t MAX_LOG_SIZE = 128;
-const uint8_t MAX_LOG_BUFFER_DEPTH = 4; /* Must be power of 2 */
+const uint8_t MAX_LOG_BUFFER_DEPTH = 8; /* Must be power of 2 */
 const uint8_t MAX_TAG_SIZE = 16;
 const uint8_t MAX_LOG_LEVEL = 5;
 
@@ -38,7 +44,7 @@ typedef struct ringBuffer {
 
 class Logging {
     public:
-    void log(const char *tag, uint8_t level, uint32_t timestamp, uint32_t line, const char *format, ...);
+    void log(const char *tag, uint8_t level, uint32_t line, const char *format, ...);
     void setup(void);
     void loop(void);
 
@@ -58,24 +64,24 @@ class Logging {
 extern LOGGING::Logging Logger;
 
 
-#define LOG_ERROR(tag, format, ...) Logger.log(tag, LOGGING::LOGGING_ERROR, osKernelGetSysTimerCount(), __LINE__, format __VA_OPT__(,) __VA_ARGS__)
+#define LOG_ERROR(tag, format, ...) Logger.log(tag, LOGGING::LOGGING_ERROR, __LINE__, format __VA_OPT__(,) __VA_ARGS__)
 #if LOG_LEVEL_WARN <= LOG_LEVEL
-#define LOG_WARN(tag, format, ...) Logger.log(tag, LOGGING::LOGGING_WARN, osKernelGetSysTimerCount(), __LINE__, format __VA_OPT__(,) __VA_ARGS__)
+#define LOG_WARN(tag, format, ...) Logger.log(tag, LOGGING::LOGGING_WARN, __LINE__, format __VA_OPT__(,) __VA_ARGS__)
 #else
 #define LOG_WARN(tag, format, ...)
 #endif
 #if LOG_LEVEL_NOTICE <= LOG_LEVEL
-#define LOG_NOTICE(tag, format, ...) Logger.log(tag, LOGGING::LOGGING_NOTICE, osKernelGetSysTimerCount(), __LINE__, format __VA_OPT__(,) __VA_ARGS__)
+#define LOG_NOTICE(tag, format, ...) Logger.log(tag, LOGGING::LOGGING_NOTICE, __LINE__, format __VA_OPT__(,) __VA_ARGS__)
 #else
 #define LOG_NOTICE(tag, format, ...)
 #endif
 #if LOG_LEVEL_INFO <= LOG_LEVEL
-#define LOG_INFO(tag, format, ...) Logger.log(tag, LOGGING::LOGGING_INFO, osKernelGetSysTimerCount(), __LINE__, format __VA_OPT__(,) __VA_ARGS__)
+#define LOG_INFO(tag, format, ...) Logger.log(tag, LOGGING::LOGGING_INFO, __LINE__, format __VA_OPT__(,) __VA_ARGS__)
 #else
 #define LOG_INFO(tag, format, ...)
 #endif
 #if LOG_LEVEL_DEBUG <= LOG_LEVEL
-#define LOG_DEBUG(tag, format, ...) Logger.log(tag, LOGGING::LOGGING_DEBUG, osKernelGetSysTimerCount(), __LINE__, format __VA_OPT__(,) __VA_ARGS__)
+#define LOG_DEBUG(tag, format, ...) Logger.log(tag, LOGGING::LOGGING_DEBUG, __LINE__, format __VA_OPT__(,) __VA_ARGS__)
 #else
 #define LOG_DEBUG(tag, format, ...)
 #endif

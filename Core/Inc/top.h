@@ -12,6 +12,7 @@
 #include "main.h"
 #include "cmsis_os.h"
 
+
 const uint8_t MF_KP = 0x0a;
 const uint8_t MF_ST = 0x0b;
 const uint8_t MF_STP = 0x0c;
@@ -27,6 +28,7 @@ extern void Top_init(void);
 extern void Top_process_MF_frame(uint8_t buffer_number);
 extern void Top_switch_task(void);
 extern void Top_console_task(void);
+extern void Top_i2c_task(void);
 extern void Top_send_I2S_Audio_Frame(uint8_t buffer_number);
 
 #ifdef __cplusplus

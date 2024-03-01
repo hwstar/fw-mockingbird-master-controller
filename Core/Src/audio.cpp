@@ -7,6 +7,8 @@ namespace Audio {
 
 static const char *TAG = "audio";
 
+#include "city_ring.h"
+
 
 /** Generated using Dr LUT - Free Lookup Table Generator
   * https://github.com/ppelikan/drlut
@@ -380,8 +382,8 @@ void Audio::setup(void) {
 	/* Initialize channel information */
 	for (int i = 0; i < NUM_AUDIO_CHANNELS; i++) {
 		if(i == 0) { // DEBUG
-			_convert_digit_string(&this->channel_info[0], "*0123456789#", true);
-			this->channel_info[i].state = AS_SEND_MF;
+            //_convert_digit_string(&this->channel_info[0], "*0123456789#", true);
+			this->channel_info[i].state = AS_SEND_AUDIO_LOOP;
 		}
 		else {
 			this->channel_info[i].state = AS_GEN_DIAL_TONE;
@@ -647,6 +649,22 @@ void Audio::request_block(uint8_t buffer_number) {
 				ch_info->cadence_timer--;
 			}
 			break;
+
+		case AS_SEND_AUDIO_LOOP:
+			ch_info->audio_sample = city_ring;
+			ch_info->audio_sample_size = sizeof(city_ring)/sizeof(int16_t);
+			ch_info->audio_sample_index = 0l;
+			ch_info->state = AS_SEND_AUDIO_LOOP_WAIT;
+			break;
+
+
+		case AS_SEND_AUDIO_LOOP_WAIT:
+			buffer[i] = ch_info->audio_sample[ch_info->audio_sample_index++];
+			if(ch_info->audio_sample_index >= ch_info->audio_sample_size) {
+				ch_info->audio_sample_index = 0l;
+			}
+			break;
+
 
 		default:
 			channel_info->state = AS_IDLE;

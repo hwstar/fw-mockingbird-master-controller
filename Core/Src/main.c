@@ -49,6 +49,10 @@ DMA_HandleTypeDef hdma_adc1;
 
 I2C_HandleTypeDef hi2c1;
 I2C_HandleTypeDef hi2c2;
+DMA_HandleTypeDef hdma_i2c1_tx;
+DMA_HandleTypeDef hdma_i2c1_rx;
+DMA_HandleTypeDef hdma_i2c2_tx;
+DMA_HandleTypeDef hdma_i2c2_rx;
 
 I2S_HandleTypeDef hi2s2;
 DMA_HandleTypeDef hdma_spi2_tx;
@@ -63,7 +67,7 @@ osThreadId_t ConsoleHandle;
 const osThreadAttr_t Console_attributes = {
   .name = "Console",
   .stack_size = 1024 * 4,
-  .priority = (osPriority_t) osPriorityBelowNormal,
+  .priority = (osPriority_t) osPriorityNormal,
 };
 /* Definitions for MF_Receiver */
 osThreadId_t MF_ReceiverHandle;
@@ -86,6 +90,13 @@ const osThreadAttr_t I2sAudio_attributes = {
   .stack_size = 1024 * 4,
   .priority = (osPriority_t) osPriorityHigh,
 };
+/* Definitions for I2C_Task */
+osThreadId_t I2C_TaskHandle;
+const osThreadAttr_t I2C_Task_attributes = {
+  .name = "I2C_Task",
+  .stack_size = 1024 * 4,
+  .priority = (osPriority_t) osPriorityNormal,
+};
 /* Definitions for Queue_MF_buffer */
 osMessageQueueId_t Queue_MF_bufferHandle;
 const osMessageQueueAttr_t Queue_MF_buffer_attributes = {
@@ -95,6 +106,11 @@ const osMessageQueueAttr_t Queue_MF_buffer_attributes = {
 osMessageQueueId_t Queue_I2S_AudioHandle;
 const osMessageQueueAttr_t Queue_I2S_Audio_attributes = {
   .name = "Queue_I2S_Audio"
+};
+/* Definitions for Queue_I2C_Busses */
+osMessageQueueId_t Queue_I2C_BussesHandle;
+const osMessageQueueAttr_t Queue_I2C_Busses_attributes = {
+  .name = "Queue_I2C_Busses"
 };
 /* USER CODE BEGIN PV */
 
@@ -116,6 +132,7 @@ void Task_console(void *argument);
 void Task_MF_receiver(void *argument);
 void Task_Switch(void *argument);
 void Task_I2S_Audio(void *argument);
+void Task_I2C(void *argument);
 
 /* USER CODE BEGIN PFP */
 
@@ -163,11 +180,8 @@ int main(void)
   MX_I2C2_Init();
   MX_USART6_UART_Init();
   MX_I2S2_Init();
+
   /* USER CODE BEGIN 2 */
-
-  Top_init(); /* Call initialization hook */
-
-
 
   /* USER CODE END 2 */
 
@@ -193,6 +207,9 @@ int main(void)
   /* creation of Queue_I2S_Audio */
   Queue_I2S_AudioHandle = osMessageQueueNew (1, sizeof(uint8_t), &Queue_I2S_Audio_attributes);
 
+  /* creation of Queue_I2C_Busses */
+  Queue_I2C_BussesHandle = osMessageQueueNew (4, sizeof(I2C_Queue_Message), &Queue_I2C_Busses_attributes);
+
   /* USER CODE BEGIN RTOS_QUEUES */
   /* add queues, ... */
   /* USER CODE END RTOS_QUEUES */
@@ -210,11 +227,16 @@ int main(void)
   /* creation of I2sAudio */
   I2sAudioHandle = osThreadNew(Task_I2S_Audio, NULL, &I2sAudio_attributes);
 
+  /* creation of I2C_Task */
+  I2C_TaskHandle = osThreadNew(Task_I2C, NULL, &I2C_Task_attributes);
+
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
   /* USER CODE END RTOS_THREADS */
 
   /* USER CODE BEGIN RTOS_EVENTS */
+
+  Top_init(); /* Call initialization hook */
   /* add events, ... */
   /* USER CODE END RTOS_EVENTS */
 
@@ -603,9 +625,21 @@ static void MX_DMA_Init(void)
   __HAL_RCC_DMA1_CLK_ENABLE();
 
   /* DMA interrupt init */
+  /* DMA1_Stream0_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Stream0_IRQn, 5, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Stream0_IRQn);
+  /* DMA1_Stream1_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Stream1_IRQn, 5, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Stream1_IRQn);
+  /* DMA1_Stream2_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Stream2_IRQn, 5, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Stream2_IRQn);
   /* DMA1_Stream4_IRQn interrupt configuration */
   HAL_NVIC_SetPriority(DMA1_Stream4_IRQn, 5, 0);
   HAL_NVIC_EnableIRQ(DMA1_Stream4_IRQn);
+  /* DMA1_Stream7_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Stream7_IRQn, 5, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Stream7_IRQn);
   /* DMA2_Stream0_IRQn interrupt configuration */
   HAL_NVIC_SetPriority(DMA2_Stream0_IRQn, 5, 0);
   HAL_NVIC_EnableIRQ(DMA2_Stream0_IRQn);
@@ -638,14 +672,6 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(LEDN_GPIO_Port, &GPIO_InitStruct);
-
-  /*Configure GPIO pin : PA2 */
-  GPIO_InitStruct.Pin = GPIO_PIN_2;
-  GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  GPIO_InitStruct.Alternate = GPIO_AF5_SPI1;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
   /*Configure GPIO pins : DTMF0_Pin DTMF1_Pin DTMF2_Pin DTMF3_Pin
                            DTMF_STB2_Pin */
@@ -691,6 +717,58 @@ void HAL_I2S_TxCpltCallback(I2S_HandleTypeDef *hi2s) {
 	uint8_t msg = 1;
 	osMessageQueuePut(Queue_I2S_AudioHandle, &msg, 0U, 0U); /* Send message to audio processing task */
 }
+
+/* Called when the I2C master transmission completes */
+void HAL_I2C_MasterTxCpltCallback(I2C_HandleTypeDef *hi2c) {
+	uint8_t bus;
+	I2C_Queue_Message msg;
+	if (hi2c == &hi2c1) {
+		bus = 0;
+	}
+	else {
+		bus = 1;
+	}
+	msg.bus = bus;
+	msg.type = MSG_I2C_TX;
+	msg.handle = hi2c;
+	osMessageQueuePut(Queue_I2C_BussesHandle, &msg, 0U, 0U); /* Send message to I2C task */
+
+}
+
+/* Called when the I2C master reception completes */
+void HAL_I2C_MasterRxCpltCallback(I2C_HandleTypeDef *hi2c) {
+	uint8_t bus;
+	I2C_Queue_Message msg;
+	if (hi2c == &hi2c1) {
+		bus = 0;
+	}
+	else {
+		bus = 1;
+	}
+	msg.bus = bus;
+	msg.type = MSG_I2C_RX;
+	msg.handle = hi2c;
+	osMessageQueuePut(Queue_I2C_BussesHandle, &msg, 0U, 0U); /* Send message to I2C task */
+}
+
+/* Called when an error occurs during an I2C transaction */
+void HAL_I2C_ErrorCallback(I2C_HandleTypeDef *hi2c) {
+	uint8_t bus;
+	static I2C_Queue_Message msg;
+	if (hi2c == &hi2c1) {
+		bus = 0;
+	}
+	else {
+		bus = 1;
+	}
+	msg.bus = bus;
+	msg.type = MSG_I2C_ERR;
+	msg.handle = hi2c;
+	osMessageQueuePut(Queue_I2C_BussesHandle, &msg, 0U, 0U); /* Send message to I2C task */
+}
+
+
+
 
 
 
@@ -755,6 +833,7 @@ void Task_Switch(void *argument)
   {
     Top_switch_task();
   }
+  osThreadTerminate(NULL);
   /* USER CODE END Task_Switch */
 }
 
@@ -778,7 +857,27 @@ void Task_I2S_Audio(void *argument)
 		  Top_send_I2S_Audio_Frame(msg);
 	  }
   }
+  osThreadTerminate(NULL);
   /* USER CODE END Task_I2S_Audio */
+}
+
+/* USER CODE BEGIN Header_Task_I2C */
+/**
+* @brief Function implementing the I2C_Task thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_Task_I2C */
+void Task_I2C(void *argument)
+{
+  /* USER CODE BEGIN Task_I2C */
+  /* Infinite loop */
+  for(;;)
+  {
+    Top_i2c_task();
+  }
+  osThreadTerminate(NULL);
+  /* USER CODE END Task_I2C */
 }
 
 /**

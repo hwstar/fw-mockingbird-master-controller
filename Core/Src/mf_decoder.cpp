@@ -19,6 +19,8 @@ enum {MFR_DISABLED=0, MFR_WAIT_KP, MFR_KP_SILENCE, MFR_WAIT_DIGIT, MFR_WAIT_DIGI
 
 const float PI = 3.141529;
 
+const char *TAG = "mf_receiver";
+
 /* MF tones */
 
 const uint8_t MFT_700 = 0x20;

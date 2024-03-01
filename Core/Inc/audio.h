@@ -9,7 +9,8 @@ enum {AS_IDLE=0,
 	AS_GEN_BUSY_TONE, AS_GEN_CONGESTION_TONE, AS_BUSY_WAIT_TONE_END, AS_BUSY_WAIT_SILENCE_END,
 	AS_GEN_RINGING_TONE, AS_RINGING_WAIT_TONE_END, AS_RINGING_WAIT_SILENCE_END,
 	AS_SEND_MF, AS_SEND_MF_WAIT_TONE_END, AS_SEND_MF_WAIT_SILENCE_END,
-	AS_SEND_DTMF, AS_SEND_DTMF_WAIT_TONE_END, AS_SEND_DTMF_WAIT_SILENCE_END
+	AS_SEND_DTMF, AS_SEND_DTMF_WAIT_TONE_END, AS_SEND_DTMF_WAIT_SILENCE_END,
+	AS_SEND_AUDIO_LOOP, AS_SEND_AUDIO_LOOP_WAIT
 };
 
 const float SAMPLE_FREQ_HZ = 8000; /* Actual sample freq is slightly higher at 8012 Hz, but setting this to 8000 Hz reduces jitter in the tone frequencies. */
@@ -47,6 +48,9 @@ typedef struct ChannelInfo {
 	uint32_t cadence_timer;
 	uint32_t phase_accum[MAX_TONES];
 	uint16_t tuning_word[MAX_TONES];
+	uint32_t audio_sample_size;
+	uint32_t audio_sample_index;
+	const int16_t *audio_sample;
 } ChannelInfo;
 
 typedef struct Indications {

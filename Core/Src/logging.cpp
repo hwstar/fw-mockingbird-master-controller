@@ -30,7 +30,7 @@ void Logging::_xmit_logitem(const char *tag, uint8_t level, uint32_t timestamp, 
 }
 
 
-void Logging::log(const char *tag, uint8_t level, uint32_t timestamp, uint32_t line, const char *format, ...) {
+void Logging::log(const char *tag, uint8_t level, uint32_t line, const char *format, ...) {
    
 	osMutexAcquire(this->_ring_buffer.lock, osWaitForever);
     if(this->_buffer_full()){
@@ -47,7 +47,7 @@ void Logging::log(const char *tag, uint8_t level, uint32_t timestamp, uint32_t l
         strncpy(li->tag, tag, MAX_TAG_SIZE);
         li->tag[MAX_TAG_SIZE - 1] = 0;
         li->level = level;
-        li->timestamp = timestamp;
+        li->timestamp = osKernelGetTickCount();
         li->line = line;
         /* Advance to next position in ring buffer */
         _ring_buffer.head = this->_buffer_next(_ring_buffer.head);
