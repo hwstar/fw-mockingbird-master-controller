@@ -58,29 +58,54 @@ extern void Top_send_I2S_Audio_Frame(uint8_t buffer_number){
 /*
  * Task to process switching functions
  */
+typedef struct mf_test_obj {
+	bool done;
+	bool running;
+	uint8_t error_code;
+	uint8_t digit_count;
+	uint32_t descriptor;
+	char digits[Mfd::MF_MAX_DIGITS];
+
+}mf_test_obj;
+
+mf_test_obj mf_test;
+
+
+void mf_receiver_callback(uint8_t error_code, uint8_t digit_count, char *data) {
+	mf_test.error_code = error_code;
+	mf_test.digit_count = digit_count;
+	strncpy(mf_test.digits, data, Mfd::MF_MAX_DIGITS);
+	mf_test.done = true;
+}
+
 
 void Top_switch_task(void) {
-	static bool mfr_running = false;
 
 	osDelay(50);
 
 
 	/* Test code */
-	if (!mfr_running) {
-		Mfr.listen_start();
-		mfr_running = true;
+	if (!mf_test.running) {
+		mf_test.done = false;
+		mf_test.descriptor = Mfr.seize(mf_receiver_callback);
+		if(!mf_test.descriptor) {
+			LOG_ERROR(TAG, "MF Receiver seizure failed");
+		}
+		else {
+			mf_test.running = true;
+		}
 	}
 	else {
-		if (Mfr.check_done()) {
-			uint8_t error_code;
-			if ((error_code = Mfr.get_error_code())) {
-				LOG_WARN(TAG, "MF receiver returned error code %d", error_code);
+		if(mf_test.done) {
+			mf_test.running = false;
+			if(mf_test.error_code == Mfd::MFE_OK) {
+				LOG_INFO(TAG, "Digit count: %d, MF data received: %s", mf_test.digit_count, mf_test.digits);
 			}
 			else {
-				LOG_INFO(TAG, "MF receiver returned digits: %s", Mfr.get_received_digits());
+				LOG_ERROR(TAG, "MF receiver digit timeout");
 			}
-			Mfr.listen_stop();
-			mfr_running = false;
+			Mfr.release(mf_test.descriptor);
+
 		}
 
 	}

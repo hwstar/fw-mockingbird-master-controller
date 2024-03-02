@@ -4,6 +4,7 @@
 namespace Mfd {
 
 
+
 const uint8_t NUM_MF_FREQUENCIES = 6;
 const uint8_t MF_MAX_DIGITS = 16;
 const uint8_t MF_DECODE_TABLE_SIZE = 15;
@@ -15,11 +16,10 @@ const float SILENCE_THRESHOLD = 2.0; // Digit detect noise floor
 const uint8_t MIN_KP_GATE_BLOCK_COUNT = 3;
 const uint8_t MIN_DIGIT_BLOCK_COUNT = 2;
 const uint16_t MF_INTERDIGIT_TIMEOUT = 50*5; // 5 Seconds
-const uint16_t MF_MAX_DEBUG_INFO = 256;
-const uint8_t MFE_OK = 0;
-const uint8_t MFE_TIMEOUT = 1;
-const uint8_t MFE_MORE_THAN_TWO_TONES = 2;
 
+
+enum {MFE_OK=0, MFE_TIMEOUT};
+enum {MFR_IDLE=0, MFR_WAIT_KP, MFR_KP_SILENCE, MFR_WAIT_DIGIT, MFR_WAIT_DIGIT_SILENCE, MFR_TIMEOUT, MFR_DONE, MFR_WAIT_RELEASE};
 
 // Data for each goertzel tone decoder
 
@@ -39,8 +39,11 @@ typedef struct mfData {
 	uint8_t error_code;
 	uint8_t tone_block_count;
 	uint8_t digit_count;
-	uint8_t digits[MF_MAX_DIGITS];
-	uint8_t debug_info[MF_MAX_DEBUG_INFO];
+	uint32_t descriptor;
+	void (*callback)(uint8_t error_code, uint8_t digit_count, char *data);
+	char digits[MF_MAX_DIGITS];
+
+
 } mfData;
 
 // Functions
@@ -50,12 +53,9 @@ class MF_decoder {
 public:
 
 
-void setup(); // Called once during initialization to set up the decoder
-void listen_start(); // Called to enable the MF receiver
-void listen_stop(); // Called to disable the MF receiver
-bool check_done(); // Called to see if const float PI = 3.141529;the MF receiver is done
-int get_error_code(); // Called to retrieve error code
-char *get_received_digits(); // Return digits received
+void setup(); /* Called once during initialization to set up the decoder */
+uint32_t seize(void (*callback)(uint8_t error_code, uint8_t digit_count, char *data)); /* Called to seize the MF receiver */
+bool release(uint32_t descriptor); /* Called to release the MF receiver */
 
 void handle_buffer(uint8_t buffer_no); // Called by the DMA engine when half full and full.'
 

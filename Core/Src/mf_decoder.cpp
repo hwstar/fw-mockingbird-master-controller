@@ -9,13 +9,13 @@
 * https://github.com/AI5GW/Goertzel
 *
 * Notes:
-
+*
 * Tested with a Sage 930A using tone lengths: KP:100ms, Other digits: 70ms
 */
 
 namespace Mfd {
 /* MF receiver states */
-enum {MFR_DISABLED=0, MFR_WAIT_KP, MFR_KP_SILENCE, MFR_WAIT_DIGIT, MFR_WAIT_DIGIT_SILENCE, MFR_TIMEOUT, MFR_DONE};
+
 
 const float PI = 3.141529;
 
@@ -84,71 +84,81 @@ void MF_decoder::setup() {
 }
 
 /*
-* Start listening for MF signalling
+* Attempt to seize the MF receiver.
+* Will return a non zero positive number as a descriptor if successful.
+* Will return 0 on an error or if someone else has seized the MF receiver.
 */
 
-void MF_decoder::listen_start() {
-	osMutexAcquire(this->_lock, osWaitForever);
-	this->_mf_data.error_code = 0;
-	this->_mf_data.tone_digit = false;
-	this->_mf_data.digit_count = 0;
-	this->_mf_data.tone_block_count = 0;
-	this->_mf_data.timer = 0;
-	this->_mf_data.debug_info[0] = 0;
-	this->_mf_data.state = MFR_WAIT_KP;
+uint32_t MF_decoder::seize(void (*callback)(uint8_t error_code, uint8_t digit_count, char *data)) {
 
-	/* Start sending conversion requests to the ADC */
-    if (HAL_TIM_OC_Start(&htim3, TIM_CHANNEL_2) != HAL_OK) {
-		Error_Handler();
+	uint8_t descriptor = 1;
+	osMutexAcquire(this->_lock, osWaitForever);
+	if((callback) && (this->_mf_data.state == MFR_IDLE)) {
+		/* Start sending conversion requests to the ADC */
+		if (HAL_TIM_OC_Start(&htim3, TIM_CHANNEL_2) != HAL_OK) {
+			LOG_DEBUG(TAG, "Could not start timer 3 channel 2");
+			descriptor = 0;
+		}
+
+		if (HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1 ) != HAL_OK) {
+			LOG_DEBUG(TAG, "Could not start timer 3 channel 1");
+			descriptor = 0;
+		}
+		if(descriptor) {
+			this->_mf_data.callback = callback;
+			this->_mf_data.descriptor = descriptor;
+			this->_mf_data.error_code = 0;
+			this->_mf_data.tone_digit = false;
+			this->_mf_data.digit_count = 0;
+			this->_mf_data.tone_block_count = 0;
+			this->_mf_data.timer = 0;
+			this->_mf_data.state = MFR_WAIT_KP;
+		}
+	}
+	else {
+		descriptor = 0; /* Seized by someone else, or null pointer passed in for callback */
+		if(!callback) {
+			LOG_DEBUG(TAG, "Null pointer passed in for callback function");
+		}
 	}
 
-  	if (HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1 ) != HAL_OK) {
-  		Error_Handler();
-  	}
+
   	osMutexRelease(this->_lock);
+  	return descriptor;
 }
 
 
 /*
-* Stop listening for MF signalling
+* Release the MF receiver. Must be called outside of the callback or a deadlock will result.
+*
+* Returns true if successful
 */
 
-void MF_decoder::listen_stop() {
+bool MF_decoder::release(uint32_t descriptor) {
+	bool res = true;
 	osMutexAcquire(this->_lock, osWaitForever);
-    /* Stop sending conversion requests to the ADC */
-  	if (HAL_TIM_PWM_Stop(&htim3, TIM_CHANNEL_1 ) != HAL_OK) {
-  		Error_Handler();
-  	}
-
-	if (HAL_TIM_OC_Stop(&htim3, TIM_CHANNEL_2) != HAL_OK) {
-		Error_Handler();
+	if(descriptor != this->_mf_data.descriptor) {
+		res = false;
 	}
-	osMutexRelease(this->_lock);
-}
+	else {
+		/* Stop sending conversion requests to the ADC */
+		if (HAL_TIM_PWM_Stop(&htim3, TIM_CHANNEL_1 ) != HAL_OK) {
+			LOG_DEBUG(TAG, "Could not stop timer 3 channel 1");
+			res = false;
+		}
 
+		if (HAL_TIM_OC_Stop(&htim3, TIM_CHANNEL_2) != HAL_OK) {
+			LOG_DEBUG(TAG, "Could not stop timer 3 channel 2");
+			res = false;
+		}
 
-bool MF_decoder::check_done() {
-	bool res = false;
-	osMutexAcquire(this->_lock, osWaitForever);
-	if(this->_mf_data.state == MFR_DONE) {
-		res = true;
+		this->_mf_data.state = MFR_IDLE;
 	}
+
 	osMutexRelease(this->_lock);
 	return res;
 }
 
-int MF_decoder::get_error_code() {
-	int error_code;
-	error_code = this->_mf_data.error_code;
-	return error_code;
-
-}
-
-
-char * MF_decoder::get_received_digits() {
-	this->_mf_data.digits[MF_MAX_DIGITS - 1] = 0; /* Ensure string is terminated */
-	return (char *)this->_mf_data.digits;
-}
 
 void MF_decoder::handle_buffer(uint8_t buffer_no) {
 	float max = 1.0;
@@ -249,19 +259,21 @@ void MF_decoder::handle_buffer(uint8_t buffer_no) {
 	osMutexAcquire(this->_lock, osWaitForever); /* Get the lock */
 
 	switch(this->_mf_data.state) {
+		case MFR_IDLE:
+			break;
+
 		case MFR_WAIT_KP:
 			if (!silence && valid_code == true && mf_code == MFC_KP) {
 				if (this->_mf_data.tone_block_count >= MIN_KP_GATE_BLOCK_COUNT){
 					this->_mf_data.digit_count = 0;
+					this->_mf_data.digits[0] = '*'; /* Add KP to string */
+					this->_mf_data.digit_count++;
 					this->_mf_data.timer = 0;
 					this->_mf_data.state = MFR_KP_SILENCE;
 				}
 				else {
 					this->_mf_data.tone_block_count++;
 				}
-			}
-			else {
-				this->_mf_data.debug_info[0] = 0;
 			}
 			break;
 
@@ -308,18 +320,33 @@ void MF_decoder::handle_buffer(uint8_t buffer_no) {
 
 		case MFR_WAIT_DIGIT_SILENCE:
 			if (silence) {
-				if (this->_mf_data.tone_digit != '#') {
-					this->_mf_data.state = MFR_WAIT_DIGIT;
+				if ((this->_mf_data.tone_digit != '#') && /* If not an ST of some type */
+						(this->_mf_data.tone_digit != 'A') &&
+						(this->_mf_data.tone_digit != 'B') &&
+						(this->_mf_data.tone_digit != 'C')) {
+
+
 					this->_mf_data.tone_block_count = 0;
 					this->_mf_data.timer = 0;
 					if (this->_mf_data.digit_count < MF_MAX_DIGITS) {
-						this->_mf_data.digits[this->_mf_data.digit_count] = this->_mf_data.tone_digit;
+						this->_mf_data.digits[this->_mf_data.digit_count++] = this->_mf_data.tone_digit;
 					}
-					this->_mf_data.digit_count++;
+					/* Wait for next digit */
+					this->_mf_data.state = MFR_WAIT_DIGIT;
 				}
 				else {
+					/* Add the ST, STP, ST2P, or ST3P character to the end of the digit string */
+					if (this->_mf_data.digit_count < MF_MAX_DIGITS){
+						this->_mf_data.digits[this->_mf_data.digit_count++] = this->_mf_data.tone_digit;
+					}
+					/* Terminate the digit string */
+					if (this->_mf_data.digit_count < MF_MAX_DIGITS){
+						this->_mf_data.digits[this->_mf_data.digit_count] = 0;
+					}
+					else {
+						this->_mf_data.digits[MF_MAX_DIGITS-1] = 0;
+					}
 					this->_mf_data.state = MFR_DONE;
-					this->_mf_data.digits[this->_mf_data.digit_count] = 0;
 				}
 			}
 			else {
@@ -336,6 +363,12 @@ void MF_decoder::handle_buffer(uint8_t buffer_no) {
 			break;
 
 		case MFR_DONE:
+			/* Call the user's callback function */
+			(*this->_mf_data.callback)(this->_mf_data.error_code, this->_mf_data.digit_count, this->_mf_data.digits);
+			this->_mf_data.state = MFR_WAIT_RELEASE;
+			break;
+
+		case MFR_WAIT_RELEASE:
 			break;
 
 
