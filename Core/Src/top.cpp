@@ -10,6 +10,8 @@
 #include "mf_decoder.h"
 #include "audio.h"
 #include "i2c_engine.h"
+#include "util.h"
+#include "city_ring.h"
 
 
 static const char *TAG = "top";
@@ -21,6 +23,7 @@ Console::Console Con;
 Mfd::MF_decoder Mfr;
 Audio::Audio Aud;
 I2C_Engine::I2C_Engine I2c;
+Util::Util Utility;
 
 
 
@@ -78,10 +81,25 @@ void mf_receiver_callback(uint8_t error_code, uint8_t digit_count, char *data) {
 	mf_test.done = true;
 }
 
+void audio_callback(uint32_t channel_num) {
+	LOG_INFO(TAG, "Audio callback called, channel num: %d", channel_num);
+}
+
+static bool audio_seized = false;
+static uint32_t ch[2];
 
 void Top_switch_task(void) {
 
 	osDelay(50);
+
+	if(!audio_seized) {
+		audio_seized = true;
+		ch[0] = Aud.seize();
+		ch[1] = Aud.seize();
+		Aud.send_loop(ch[0], city_ring, sizeof(city_ring) >>1);
+	    Aud.send_call_progress_tones(ch[1], Audio::CPT_DIAL_TONE);
+	}
+
 
 
 	/* Test code */

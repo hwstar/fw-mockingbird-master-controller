@@ -10,8 +10,10 @@ enum {AS_IDLE=0,
 	AS_GEN_RINGING_TONE, AS_RINGING_WAIT_TONE_END, AS_RINGING_WAIT_SILENCE_END,
 	AS_SEND_MF, AS_SEND_MF_WAIT_TONE_END, AS_SEND_MF_WAIT_SILENCE_END,
 	AS_SEND_DTMF, AS_SEND_DTMF_WAIT_TONE_END, AS_SEND_DTMF_WAIT_SILENCE_END,
-	AS_SEND_AUDIO_LOOP, AS_SEND_AUDIO_LOOP_WAIT
+	AS_SEND_AUDIO, AS_SEND_AUDIO_WAIT, AS_SEND_AUDIO_LOOP, AS_SEND_AUDIO_LOOP_WAIT
 };
+
+enum {CPT_DIAL_TONE=0, CPT_BUSY, CPT_CONGESTION, CPT_RINGING, CPT_MAX};
 
 const float SAMPLE_FREQ_HZ = 8000; /* Actual sample freq is slightly higher at 8012 Hz, but setting this to 8000 Hz reduces jitter in the tone frequencies. */
 const uint16_t SINE_TABLE_BIT_WIDTH = 10; /* 1KB of sine table */
@@ -34,11 +36,12 @@ const uint32_t TIME_PER_SAMPLE_US = 1000000UL/SAMPLE_FREQ_HZ;
 
 
 
+
 typedef struct ChannelInfo {
+	bool in_use;
+	bool is_stoppable;
+	void (*callback)(uint32_t descriptor);
 	uint8_t state;
-	uint8_t return_state;
-	uint8_t digit_string_length;
-	uint8_t digit_string_index;
 	uint8_t digit_string[DIGIT_STRING_MAX_LENGTH];
 	float f1;
 	float f2;
@@ -50,6 +53,8 @@ typedef struct ChannelInfo {
 	uint16_t tuning_word[MAX_TONES];
 	uint32_t audio_sample_size;
 	uint32_t audio_sample_index;
+	size_t digit_string_length;
+	size_t digit_string_index;
 	const int16_t *audio_sample;
 } ChannelInfo;
 
@@ -173,6 +178,14 @@ const Mf MF = {
 class Audio {
 public:
 	void setup(void);
+	uint32_t seize(void);
+	bool release(uint32_t channel_number);
+	bool send_call_progress_tones(uint32_t channel_number, uint8_t type);
+	bool send_mf(uint32_t channel_number, const char *digit_string, void (*callback)(uint32_t channel_number));
+	bool send_dtmf(uint32_t channel_number, const char *digit_string, void (*callback)(uint32_t channel_number));
+	bool send(uint32_t channel_number, const int16_t *samples, uint32_t length, void (*callback)(uint32_t channel_number));
+	bool send_loop(uint32_t channel_number, const int16_t *samples, uint32_t length);
+	bool stop(uint32_t channel_number);
 	void request_block(uint8_t buffer_number);
 
 
@@ -186,6 +199,7 @@ protected:
 	int16_t _next_tone_value(ChannelInfo *channel_info);
 	void _generate_tone(ChannelInfo *channel_info, float freq, float level);
 	void _generate_dual_tone(ChannelInfo *channel_info, float freq1, float freq2, float db_level1, float db_level2);
+	bool _validate_channel(uint32_t descriptor);
 	ChannelInfo channel_info[NUM_AUDIO_CHANNELS];
 	osMutexId_t _lock;
 	int16_t lr_audio_output_buffer[LR_AUDIO_BUFFER_SIZE * 2]; /* 2 buffers in circular buffer for double buffering */
