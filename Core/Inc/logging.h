@@ -1,6 +1,10 @@
 #pragma once
 #include "console.h"
 
+
+
+
+
 /*
 * Default logging level
 */
@@ -16,8 +20,8 @@
 
 namespace LOGGING {
 
-const uint16_t MAX_LOG_SIZE = 128;
-const uint8_t MAX_LOG_BUFFER_DEPTH = 8; /* Must be power of 2 */
+const uint8_t LOG_QUEUE_DEPTH = 8;
+const uint16_t MAX_LOG_SIZE = 80;
 const uint8_t MAX_TAG_SIZE = 16;
 const uint8_t MAX_LOG_LEVEL = 5;
 
@@ -32,14 +36,6 @@ typedef struct logItem {
     char log_message[MAX_LOG_SIZE];
 } logItem;
 
-typedef struct ringBuffer {
-	osMutexId_t lock;
-    uint8_t head;
-    uint8_t tail;
-    bool overflow_error;
-    logItem messages[MAX_LOG_BUFFER_DEPTH];
-
-} ringBuffer;
 
 
 class Logging {
@@ -51,12 +47,10 @@ class Logging {
 
 
     protected:
-    ringBuffer _ring_buffer;
-
-    bool _buffer_full(void) { return (((this->_ring_buffer.head + 1) & (MAX_LOG_BUFFER_DEPTH - 1)) == this->_ring_buffer.tail); }
-    bool _buffer_empty(void) { return (this->_ring_buffer.tail == this->_ring_buffer.head); }
-    uint8_t _buffer_next(uint8_t buffer) { return (buffer + 1) & (MAX_LOG_BUFFER_DEPTH - 1); }
     void _xmit_logitem(const char *tag, uint8_t level, uint32_t timestamp, const char *str, uint32_t line);
+
+    osMessageQueueId_t _queue_logging_handle;
+    bool _queue_overflow;
 };
 
 } /* End Namespace LOGGING */

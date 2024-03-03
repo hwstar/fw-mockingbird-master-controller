@@ -1,3 +1,4 @@
+#include "top.h"
 #include "logging.h"
 
 namespace LOGGING {
@@ -31,77 +32,67 @@ void Logging::_xmit_logitem(const char *tag, uint8_t level, uint32_t timestamp, 
 
 
 void Logging::log(const char *tag, uint8_t level, uint32_t line, const char *format, ...) {
-   
-	osMutexAcquire(this->_ring_buffer.lock, osWaitForever);
-    if(this->_buffer_full()){
-        this->_ring_buffer.overflow_error = true;
-    }
-    else {
-        va_list alp;
-        va_start(alp, format);
 
-        logItem *li = &this->_ring_buffer.messages[_ring_buffer.head];
-        vsnprintf(li->log_message, MAX_LOG_SIZE, format, alp);
-        va_end(alp);
-        li->log_message[MAX_LOG_SIZE - 1] = 0;
-        strncpy(li->tag, tag, MAX_TAG_SIZE);
-        li->tag[MAX_TAG_SIZE - 1] = 0;
-        li->level = level;
-        li->timestamp = osKernelGetTickCount();
-        li->line = line;
-        /* Advance to next position in ring buffer */
-        _ring_buffer.head = this->_buffer_next(_ring_buffer.head);
+	va_list alp;
+	va_start(alp, format);
 
-    }
-    osMutexRelease(this->_ring_buffer.lock);
-
+	logItem li = {0};
+	vsnprintf(li.log_message, MAX_LOG_SIZE, format, alp);
+	va_end(alp);
+	li.log_message[MAX_LOG_SIZE - 1] = 0;
+	strncpy(li.tag, tag, MAX_TAG_SIZE);
+	li.tag[MAX_TAG_SIZE - 1] = 0;
+	li.level = level;
+	li.timestamp = osKernelGetTickCount();
+	li.line = line;
+	osStatus_t res = osMessageQueuePut(this->_queue_logging_handle, &li, 0U, 0U);
+	if(res == osErrorResource) {
+		this->_queue_overflow = true;
+	}
+	else if (res == osErrorParameter) {
+		/* Program bug */
+		Error_Handler();
+	}
 }
 
 void Logging::setup(void) {
 
-	/* Create mutex to protect ring buffer data between tasks */
-	static const osMutexAttr_t logging_mutex_attr = {
-		"LoggingMutex",
-		osMutexRecursive | osMutexPrioInherit,
-		NULL,
-		0U
+	/* Definitions for Logging Queue */
+
+	const osMessageQueueAttr_t Queue_Logging_Attributes = {
+	  .name = "Queue_Logging"
 	};
 
-	this->_ring_buffer.lock = osMutexNew(&logging_mutex_attr);
+	/* Create logging queue */
 
+	this->_queue_logging_handle = osMessageQueueNew (LOG_QUEUE_DEPTH, sizeof(logItem), &Queue_Logging_Attributes);
+
+	this->_queue_overflow = false;
 
 }
 
 void Logging::loop() {
 
-	static logItem log_item;
-	bool overflow_error = false;
-	bool log_message = false;
+	logItem li;
 
-	osMutexAcquire(this->_ring_buffer.lock, osWaitForever);
-	if(this->_ring_buffer.overflow_error) {
-		overflow_error = true;
-		this->_ring_buffer.overflow_error = false;
+	osStatus_t res = osMessageQueueGet(this->_queue_logging_handle, &li, NULL, 0U);
+
+	if (res == osOK) {
+		this->_xmit_logitem(li.tag, li.level, li.timestamp, li.log_message, li.line);
 	}
-	else if (!this->_buffer_empty()) {
-		logItem *li = &this->_ring_buffer.messages[_ring_buffer.tail];
-		/* Indicate we have a log message to print */
-		log_message = true;
-		/* Copy log message out of buffer for printing */
-		memcpy(&log_item, li, sizeof(logItem));
-		/* Advance to next position in the ring buffer */
-		_ring_buffer.tail = this->_buffer_next(_ring_buffer.tail);
-
+	else if (res == osErrorParameter) {
+		/* Program Bug if this happens */
+		Error_Handler();
 	}
-	osMutexRelease(this->_ring_buffer.lock);
 
-	if(overflow_error) { /* Test for log buffer overflow */
+
+
+	if (this->_queue_overflow) { /* Test for log buffer overflow */
+		this->_queue_overflow = false;
 		this->_xmit_logitem(TAG, LOGGING_ERROR, osKernelGetTickCount(), "*** Log buffer overflow ***", __LINE__);
 
 	}
-	else if(log_message == true) { /* Test for presence of log message */
-		this->_xmit_logitem(log_item.tag, log_item.level, log_item.timestamp, log_item.log_message, log_item.line);
-	}
+
 
 
 

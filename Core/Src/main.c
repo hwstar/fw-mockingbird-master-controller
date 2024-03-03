@@ -66,35 +66,35 @@ UART_HandleTypeDef huart6;
 osThreadId_t ConsoleHandle;
 const osThreadAttr_t Console_attributes = {
   .name = "Console",
-  .stack_size = 1024 * 4,
+  .stack_size = 512 * 4,
   .priority = (osPriority_t) osPriorityNormal,
 };
 /* Definitions for MF_Receiver */
 osThreadId_t MF_ReceiverHandle;
 const osThreadAttr_t MF_Receiver_attributes = {
   .name = "MF_Receiver",
-  .stack_size = 1024 * 4,
+  .stack_size = 256 * 4,
   .priority = (osPriority_t) osPriorityHigh,
 };
 /* Definitions for Switch */
 osThreadId_t SwitchHandle;
 const osThreadAttr_t Switch_attributes = {
   .name = "Switch",
-  .stack_size = 2048 * 4,
+  .stack_size = 1024 * 4,
   .priority = (osPriority_t) osPriorityNormal,
 };
 /* Definitions for I2sAudio */
 osThreadId_t I2sAudioHandle;
 const osThreadAttr_t I2sAudio_attributes = {
   .name = "I2sAudio",
-  .stack_size = 1024 * 4,
+  .stack_size = 256 * 4,
   .priority = (osPriority_t) osPriorityHigh,
 };
 /* Definitions for I2C_Task */
 osThreadId_t I2C_TaskHandle;
 const osThreadAttr_t I2C_Task_attributes = {
   .name = "I2C_Task",
-  .stack_size = 1024 * 4,
+  .stack_size = 256 * 4,
   .priority = (osPriority_t) osPriorityNormal,
 };
 /* Definitions for Queue_MF_buffer */
@@ -180,7 +180,6 @@ int main(void)
   MX_I2C2_Init();
   MX_USART6_UART_Init();
   MX_I2S2_Init();
-
   /* USER CODE BEGIN 2 */
 
   /* USER CODE END 2 */
