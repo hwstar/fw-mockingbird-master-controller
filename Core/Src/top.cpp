@@ -11,10 +11,13 @@
 #include "audio.h"
 #include "i2c_engine.h"
 #include "util.h"
+#include "uart.h"
 #include "city_ring.h"
 
 
 static const char *TAG = "top";
+static const uint8_t UART_RX_BUFFER_SIZE = 32;
+static volatile char rx_buffer_uart6[UART_RX_BUFFER_SIZE];
 
 /*
  * Class instantiations
@@ -24,6 +27,7 @@ Mfd::MF_decoder Mfr;
 Audio::Audio Aud;
 I2C_Engine::I2C_Engine I2c;
 Util::Util Utility;
+Uart_Rx::Uart_Rx Uart;
 
 
 
@@ -53,8 +57,21 @@ void Top_process_MF_frame(uint8_t buffer_number) {
  * Called when we have to send an I2S audio frame
  */
 
-extern void Top_send_I2S_Audio_Frame(uint8_t buffer_number){
+void Top_send_I2S_Audio_Frame(uint8_t buffer_number){
 	Aud.request_block(buffer_number);
+}
+
+/*
+ * Custom UART6 interrupt handler - See stm32f4xx_it.c, and stm32f4xx_hal_msp.c for user modifications
+ */
+
+void Top_Int_Handler_Uart6(void) {
+	/* Grab the character from the UART register */
+	/* TODO: handle reception errors */
+	char c = (char)(huart6.Instance->DR & (uint8_t)0x00FF);
+	Uart.rx_int(c);
+
+
 }
 
 

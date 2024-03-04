@@ -8,6 +8,7 @@
 
 #include "console.h"
 #include "logging.h"
+#include "uart.h"
 
 
 const char *TAG = "console";
@@ -18,7 +19,7 @@ const char *TAG = "console";
 extern "C" {
 int __io_putchar(int ch)
 {
-    HAL_UART_Transmit(&huart6, (uint8_t *)& ch, 1, HAL_MAX_DELAY);
+    Uart.putc(ch);
 	return ch;
 }
 }

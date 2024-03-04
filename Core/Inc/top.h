@@ -30,6 +30,7 @@ extern void Top_switch_task(void);
 extern void Top_console_task(void);
 extern void Top_i2c_task(void);
 extern void Top_send_I2S_Audio_Frame(uint8_t buffer_number);
+extern void Top_Int_Handler_Uart6(void);
 
 #ifdef __cplusplus
 }
